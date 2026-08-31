@@ -75,6 +75,7 @@ void test_mat_mul(){
   print_matrix(ans);
 
 }
+
 int main(){
   int n = 3;
   int m = 3;

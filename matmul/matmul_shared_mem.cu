@@ -35,19 +35,47 @@ void matmul(float *d_A, float *d_B, float*ans, int m_a, int n_b, int k){
   int col = threadIdx.x + blockIdx.x * blockDim.x;
   int row = threadIdx.y + blockIdx.y * blockDim.y;
 
-  // Edge guard so that you don't compute anything out of bounds
-  if (row >= m_a || col >= n_b){
-    return;
-  }
   float acc = 0.0f;
-  // compute the dot product loop through num cols in A or rows in b 
-  for (int i=0; i < k; i++){
-    int idx_a = get_idx(row, i, k);
-    int idx_b = get_idx(i, col, n_b);
-    acc += d_A[idx_a] * d_B[idx_b];
+  const int tile_dim = 16;
+  __shared__ float shared_a[tile_dim][tile_dim];
+  __shared__ float shared_b[tile_dim][tile_dim];
+
+  int num_tiles = (k + tile_dim -1) / tile_dim;
+
+  float sum = 0.0f;
+  for (int ph=0; ph < num_tiles; ph++){
+    //
+    //
+    // global row for a -> row
+    // global col for a -> ph * tiledim + threadIdx.x   
+    // Edge guard so that you don't compute anything out of bounds
+    int acol = ph * tile_dim + threadIdx.x;
+    int brow = ph * tile_dim + threadIdx.y;
+    if (row < m_a && acol < k){
+      shared_a[threadIdx.y][threadIdx.x] =  d_A[row * k + (ph * tile_dim + threadIdx.x)];
+    } else {
+      shared_a[threadIdx.y][threadIdx.x] = 0.0f; 
+    }
+  
+    // gloabl row for b -> threadIdx.y + ph *tiledim 
+    // global col for c -> col
+
+    if (col < n_b && brow < k){
+      shared_b[threadIdx.y][threadIdx.x] = d_B[(threadIdx.y + ph * tile_dim) * n_b + col];
+    } else {
+      shared_b[threadIdx.y][threadIdx.x] = 0.0f; 
+    }
+    __syncthreads();
+    
+    for (int i=0; i < tile_dim; i++){
+      sum += shared_a[threadIdx.y][i] * shared_b[i][threadIdx.x];
+    }
+    __syncthreads();
   }
-  int final_idx =get_idx(row, col, n_b); 
-  ans[final_idx] = acc;
+  if (row < m_a && col < n_b){
+    int final_index = row * n_b + col;
+    ans[final_index] = sum;
+  }
 }
 bool verify_results(const float *d_ans, const float *h_ans, int size) {
     for (int i = 0; i < size; ++i) {
