@@ -12,7 +12,6 @@ __global__ void softmax(float *arr, float *out, int size){
    * Where C is the max of the softmax array
    *
    * */
-  
 
   // Get the max
   float curr_max = -INFINITY;
