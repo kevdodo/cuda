@@ -4,6 +4,10 @@
 #include <cuda_runtime_api.h>
 #include <iostream>
 
+#ifndef BUILD_STANDALONE
+#include <torch/extension.h>
+#endif
+
 const int TILE_DIM = 256;
 __global__ void softmax(float *arr, float *out, int size){
   /*
@@ -55,15 +59,15 @@ __global__ void softmax(float *arr, float *out, int size){
     //
     // We always want half workers (0 -> stride-1) to be executed
     if (idx < stride){
-      float new_max = max(maxes[idx], maxes[idx + stride]);
+      float new_max = fmaxf(maxes[idx], maxes[idx + stride]);
       float dnew = denoms[idx] * expf(maxes[idx] - new_max) + denoms[idx + stride] * expf(maxes[idx+stride] - new_max);
 
       maxes[idx] = new_max;
       denoms[idx] = dnew;
     }
+    __syncthreads();
     stride /=2;
 
-    __syncthreads();
     //printf("thread_idx %d  maxes: %f, %f, %f, %f, %f \n\n", idx, maxes[0], maxes[1], maxes[2], maxes[3], maxes[4]);
   }
   
@@ -73,6 +77,30 @@ __global__ void softmax(float *arr, float *out, int size){
   }
 } 
 
+
+#ifndef BUILD_STANDALONE
+torch::Tensor run_softmax(torch::Tensor input) {
+  TORCH_CHECK(input.is_cuda(), "input must be on cuda");
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  TORCH_CHECK(input.scalar_type() == torch::kFloat32, "Input must be float32");
+  
+  int size = input.numel();
+  auto output = torch::empty_like(input);
+  softmax<<<1, TILE_DIM>>>(
+      input.data_ptr<float>(),
+      output.data_ptr<float>(),
+      size
+  );
+  return output;
+}
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  m.def("softmax", &run_softmax, "Online softmax kernel");
+}
+
+#endif
+
+#ifdef BUILD_STANDALONE
 void print_first_five(float *arr){
   std::cout << "printing first five :D" << std::endl;
   for (int i=0; i < 5; i++){
@@ -117,3 +145,4 @@ int main(){
 
   return 0;
 }
+#endif
