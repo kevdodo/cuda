@@ -8,7 +8,7 @@
 #include <torch/extension.h>
 #endif
 
-const int TILE_DIM = 256;
+const int TILE_DIM = 1024;
 __global__ void softmax(float *arr, float *out, int size){
   /*
    * Softmax formula:
